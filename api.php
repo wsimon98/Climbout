@@ -492,7 +492,11 @@ function lockFor(string $key, float $maxWait = 12.0) {
     $h = @fopen(CACHE . '/' . hash('sha256', $key) . '.lock', 'c');
     if ($h) {
         $t = microtime(true);
-        while (!@flock($h, LOCK_EX | LOCK_NB)) {
+        $wouldBlock = 0;
+        while (!@flock($h, LOCK_EX | LOCK_NB, $wouldBlock)) {
+            // Some file systems (e.g. Android shared storage) do not support flock at all: it fails without
+            // "would block". Waiting would only burn the whole time budget, so carry on without a lock.
+            if (!$wouldBlock) break;
             if (microtime(true) - $t > $maxWait) break;
             usleep(100000);
         }
