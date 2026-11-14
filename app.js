@@ -584,10 +584,17 @@ function setRoute(route){
  if(state.lastData)render(state.lastData,true);else updateWeather(null,false);
  if(state.mapMode==='street'&&state.map&&(!state.last||!state.follow||!state.fresh))fitRoute();
 }
+const AP_DOWN='Airport lookup is temporarily unavailable - try again in a moment.';
 async function fetchAirports(codes){
- const res=await fetch('./api.php?airport='+encodeURIComponent(codes.join(',')),{cache:'no-store'});
- const d=await res.json();if(!d||d.ok!==true)throw new Error(d&&d.message||'Airport lookup failed');
- return d;
+ const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),20000);
+ try{
+   const res=await fetch('./api.php?airport='+encodeURIComponent(codes.join(',')),{cache:'no-store',signal:ctl.signal});
+   let d=null;try{d=await res.json();}catch(e){}
+   if(!d||d.ok!==true){const e=new Error(d&&d.message||AP_DOWN);e.down=!d||res.status>=500;throw e;}
+   d.airports=Array.isArray(d.airports)?d.airports:[];d.missing=Array.isArray(d.missing)?d.missing:[];d.unavailable=Array.isArray(d.unavailable)?d.unavailable:[];
+   return d;
+ }catch(err){if(err.name==='AbortError'||err instanceof TypeError){const e=new Error(AP_DOWN);e.down=true;throw e;}throw err;}
+ finally{clearTimeout(timer);}
 }
 async function applyManual(from,to,{save=true}={}){
  const gen=state.gen;from=(from||'').toUpperCase().trim();to=(to||'').toUpperCase().trim();
@@ -600,12 +607,13 @@ async function applyManual(from,to,{save=true}={}){
    if(gen!==state.gen)return;
    const find=c=>c?d.airports.find(a=>a.query===c)||null:null;
    const f=find(from),t=find(to);
-   if(d.missing&&d.missing.length){text('routeHint','Unknown airport: '+d.missing.join(', ')+'. Check the code (ICAO like EGLL, or IATA like LHR).');if(!f&&!t)return;}
+   if(d.unavailable.length){text('routeHint',AP_DOWN.replace(' - ',' for '+d.unavailable.join(', ')+' - '));return;}
+   if(d.missing.length){text('routeHint','Unknown airport: '+d.missing.join(', ')+'. Check the code (ICAO like EGLL, or IATA like LHR).');if(!f&&!t)return;}
    else text('routeHint','Route set. Saved for this flight on this device and added to the link.');
    state.manual={from:from,to:to};if(save)saveManual(from,to);
    byId('rFrom').value=f?f.icao:from;byId('rTo').value=t?t.icao:to;
    setRoute({from:f,to:t,source:'manual'});updateUrl();
- }catch(err){if(gen===state.gen)text('routeHint','Airport lookup failed: '+err.message);}
+ }catch(err){if(gen===state.gen)text('routeHint',err.down?AP_DOWN:'Airport lookup failed: '+err.message);}
 }
 function clearManual(){
  state.manual=null;saveManual('','');byId('rFrom').value='';byId('rTo').value='';
@@ -885,9 +893,9 @@ async function browseAirport(code){
  if(!/^([A-Z]{3}|[A-Z][A-Z0-9]{3})$/.test(code)){text('browseStatus','Type a 3-letter IATA (ATL) or 4-character ICAO (KATL) airport code.');return;}
  text('browseStatus','Finding '+code+'...');
  try{const d=await fetchAirports([code]);const a=d.airports[0];
-   if(!a){text('browseStatus','Unknown airport '+code+'.');return;}
+   if(!a){text('browseStatus',d.unavailable.length?AP_DOWN:'Unknown airport '+code+'.');return;}
    browse.center=[a.lat,a.lon];browse.label=apCode(a)+' '+apName(a);store('near',{lat:a.lat,lon:a.lon,label:browse.label});byId('browseAp').value='';browseLoad();
- }catch(err){text('browseStatus','Airport lookup failed: '+err.message);}
+ }catch(err){text('browseStatus',err.down?AP_DOWN:'Airport lookup failed: '+err.message);}
 }
 function browseStart(){browse.loaded=true;if(browse.center)browseLoad();else browseAirport(defaultHub());}
 byId('browseApForm').addEventListener('submit',e=>{e.preventDefault();browseAirport(byId('browseAp').value);});

@@ -256,7 +256,7 @@ h1{font-size:clamp(40px,5vw,64px);font-weight:700;line-height:.95;letter-spacing
 .wbar{flex:1;display:flex;gap:3px;height:14px}.wbar i{flex:1;background:#241b2e;border-radius:2px}.wbar i.on{background:var(--c)}
 .sub-h{display:flex;align-items:center;gap:10px;margin:16px 0 8px}
 .sub-h i{flex:1;height:5px;background:var(--lav);border-radius:3px;opacity:.7}.sub-h i:first-child{flex:0 0 32px}
-.sub-h span{font-size:17px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--lav)}.sub-h em{font-style:normal;color:var(--dim);font-size:12px;margin-left:8px}
+.sub-h span{font-size:17px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--lav)}.sub-h em{font-style:normal;color:var(--dim);font-size:12px;margin-left:8px;white-space:nowrap;display:inline-block}
 .metar-grid .metar{display:block}
 .metar-grid[data-show="0"] .metar:nth-child(2){display:none}.metar-grid[data-show="1"] .metar:nth-child(1){display:none}
 .metar .cell-l{align-items:flex-start}

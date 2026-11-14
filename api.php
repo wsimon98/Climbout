@@ -124,13 +124,18 @@ function metar(string $raw): void {
 function airports(string $raw): void {
     $list = array_values(array_unique(array_filter(array_map('trim', explode(',', strtoupper($raw))), 'strlen')));
     if (count($list) < 1 || count($list) > 4) fail('Use 1-4 airport codes');
-    $out = []; $missing = [];
     foreach ($list as $q) {
         if (!preg_match('/^([A-Z]{3}|[A-Z][A-Z0-9]{3})$/D', $q)) fail('Invalid airport code: use ICAO (KDTW) or IATA (DTW)');
-        $ap = airportLookup($q);
-        if ($ap === null) $missing[] = $q; else $out[] = $ap;
     }
-    output(['ok' => true, 'airports' => $out, 'missing' => $missing]);
+    // missing = the upstream answered and has no such airport; unavailable = the lookup failed or ran out
+    // of time (not cached, so a retry can succeed). One request spends at most ~15 s on upstream calls.
+    $out = []; $missing = []; $unavailable = [];
+    $deadline = microtime(true) + 15;
+    foreach ($list as $q) {
+        $ap = airportLookup($q, $deadline);
+        if ($ap === false) $unavailable[] = $q; elseif ($ap === null) $missing[] = $q; else $out[] = $ap;
+    }
+    output(['ok' => true, 'airports' => $out, 'missing' => $missing, 'unavailable' => $unavailable]);
 }
 
 function near(string $raw, string $rRaw): void {
@@ -280,7 +285,8 @@ function routeAirports(array $item, string $cs): ?array {
     return count($out) >= 2 && count($out) <= 8 ? $out : null;
 }
 
-function airportLookup(string $q): ?array {
+/** Airport details: array = found, null = no such airport, false = lookup failed or out of time. */
+function airportLookup(string $q, float $deadline): array|null|false {
     $icao = $q;
     if (strlen($q) === 3) {
         static $map = null;
@@ -291,14 +297,17 @@ function airportLookup(string $q): ?array {
         $icao = $map[$q] ?? ('K' . $q);   // unknown 3-letter codes: try the US ICAO form
     }
     $key = 'airport-' . $icao;
+    $fresh = fn($h) => $h !== null && ($h['ap'] !== null || time() - (int)$h['at'] < 86400);
     $hit = cacheGet($key, 7 * 86400);
-    if ($hit !== null && ($hit['ap'] !== null || time() - (int)$hit['at'] < 86400)) {
-        return $hit['ap'] ? $hit['ap'] + ['query' => $q] : null;
-    }
-    $lock = lockFor($key);
-    $r = upstream(AWC . '/api/data/airport?format=json&ids=' . $icao);
+    if ($fresh($hit)) return $hit['ap'] ? $hit['ap'] + ['query' => $q] : null;
+    $lock = lockFor($key, max(0.0, $deadline - microtime(true) - 2));
+    $hit = cacheGet($key, 7 * 86400);   // another request may have filled it while we waited
+    if ($fresh($hit)) return $hit['ap'] ? $hit['ap'] + ['query' => $q] : null;
+    $r = microtime(true) < $deadline - 2
+        ? upstream(AWC . '/api/data/airport?format=json&ids=' . $icao, null, 600000, 6, $deadline)
+        : ['status' => 0, 'data' => null];
     if ($r['status'] !== 200 && $r['status'] !== 204) {
-        return $hit && $hit['ap'] ? $hit['ap'] + ['query' => $q] : null; // keep old data on outages
+        return $hit && $hit['ap'] ? $hit['ap'] + ['query' => $q] : false; // keep old data on outages
     }
     $ap = null;
     foreach ((is_array($r['data']) ? $r['data'] : []) as $a) {
@@ -479,12 +488,12 @@ function cachePut(string $key, array $value): void {
     writeJson(cachePath($key), $value);
 }
 /** Serialise identical upstream fetches; the handle is released when the request ends. */
-function lockFor(string $key) {
+function lockFor(string $key, float $maxWait = 12.0) {
     $h = @fopen(CACHE . '/' . hash('sha256', $key) . '.lock', 'c');
     if ($h) {
         $t = microtime(true);
         while (!@flock($h, LOCK_EX | LOCK_NB)) {
-            if (microtime(true) - $t > 12) break;
+            if (microtime(true) - $t > $maxWait) break;
             usleep(100000);
         }
     }
@@ -529,18 +538,22 @@ function budgetOk(): bool {
 /**
  * Fetch JSON from one of the fixed upstream hosts. $post = JSON body for a POST.
  * Returns ['status' => HTTP status (0 = network error, 429 = local budget), 'data' => array|null].
+ * $deadline (microtime) optionally caps the total time spent, retry included.
  */
-function upstream(string $url, ?string $post = null, int $maxBytes = 600000, int $timeout = 6): array {
+function upstream(string $url, ?string $post = null, int $maxBytes = 600000, int $timeout = 6, ?float $deadline = null): array {
     $host = parse_url($url, PHP_URL_HOST);
     if (!in_array($host, ['api.adsb.lol', 'vrs-standing-data.adsb.lol', 'aviationweather.gov'], true)) {
         return ['status' => 0, 'data' => null];
     }
     if (!budgetOk()) return ['status' => 429, 'data' => null];
+    $left = fn() => $deadline === null ? $timeout : (int)floor($deadline - microtime(true));
     $started = microtime(true);
-    $r = upstreamOnce($url, $post, $maxBytes, $timeout);
+    $r = upstreamOnce($url, $post, $maxBytes, max(1, min($timeout, $left())));
     // One retry for a dropped or hung connection (never for HTTP errors). Upstream hosts sit behind
     // several addresses and one can hang while the others answer, so a second attempt usually lands well.
-    if ($r['status'] === 0 && $post === null && microtime(true) - $started < $timeout + 1) $r = upstreamOnce($url, null, $maxBytes, $timeout);
+    if ($r['status'] === 0 && $post === null && microtime(true) - $started < $timeout + 1 && $left() >= 2) {
+        $r = upstreamOnce($url, null, $maxBytes, min($timeout, $left()));
+    }
     return $r;
 }
 function upstreamOnce(string $url, ?string $post, int $maxBytes, int $timeout): array {
