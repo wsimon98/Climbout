@@ -1,0 +1,4 @@
+# robots.txt only takes effect at a domain root. Climbout is a public tool; crawlers are welcome,
+# but the JSON gateway is not a page.
+User-agent: *
+Disallow: /api.php

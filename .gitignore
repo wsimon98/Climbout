@@ -1,0 +1,7 @@
+# local test/cache leftovers
+*.tmp
+*.lock
+.DS_Store
+Thumbs.db
+/climbout-cache/
+/node_modules/

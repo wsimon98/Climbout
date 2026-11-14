@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script>
+/* Device detection: html.m = phone/narrow portrait layout, html.ml = phone landscape layout, html.touch = coarse pointer */
+(function(){var h=document.documentElement;function q(s){return window.matchMedia&&matchMedia(s).matches;}
+function f(){var w=innerWidth,hh=innerHeight,coarse=q('(pointer:coarse)'),sm=Math.min(screen.width,screen.height)<=820,ua=/Android|iPhone|iPad|iPod|Mobile|Silk/i.test(navigator.userAgent),phone=(coarse||ua)&&sm;
+var land=w>hh&&hh<=520&&(phone||w<=1000),port=!land&&(w<=900||(phone&&w<=1000));
+h.classList.toggle('ml',land);h.classList.toggle('m',port);h.classList.toggle('touch',coarse||ua);}
+f();addEventListener('resize',f);addEventListener('orientationchange',function(){setTimeout(f,250);});})();
+</script>
+<meta name="description" content="Climbout is a free live flight tracker: pick any flight by flight number, callsign, tail number or ICAO hex and follow it on a map with instruments, weather radar, airport reports and time remaining.">
+<title>Climbout | Live Flight Tracker</title>
+<link rel="preload" href="./vendor/antonio-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="./vendor/leaflet.css?v=1.9.4">
+<link rel="stylesheet" href="./style.css?v=20261114-co2">
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ===== top frame ===== -->
+  <header class="top">
+    <button class="elbow" id="homeBtn" type="button" aria-label="Close panels and return to the map"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 19h19v2h-19zM22.07 9.64c-.21-.8-1.04-1.28-1.84-1.06L14.92 10 8 3.57l-1.93.51 4.14 7.17-4.97 1.33-1.97-1.54-1.45.39 1.82 3.16.77 1.33 1.6-.43 5.31-1.42 4.35-1.16L21 11.49c.81-.23 1.28-1.05 1.07-1.85z"/></svg></button>
+    <div class="top-main">
+      <div class="top-bars"><i style="--c:var(--lav)"></i><i style="--c:var(--blu)" class="w2"></i><i style="--c:var(--red)" class="w3"></i><i style="--c:var(--gold)" class="w4"></i></div>
+      <div class="top-row">
+        <div class="brand"><span class="brandmark">C<span class="brand-dot">/</span>O</span><span class="brand-txt">CLIMBOUT</span></div>
+        <button class="flight-chip" id="flightChip" type="button" aria-label="Change flight"><span class="chip-id" id="chipId">Pick a flight</span><span class="chip-route" id="chipRoute"></span><span class="chip-caret" aria-hidden="true">&#9662;</span></button>
+        <div class="clocks" aria-label="Clocks">
+          <div><span>ZULU</span><b id="clkZ">--:--</b></div>
+          <div><span id="clkLLbl">LOCAL</span><b id="clkL">--:--</b></div>
+        </div>
+        <div class="connection" id="connection"><span class="pulse"></span><span id="connectionText">No flight selected</span></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== side rail ===== -->
+  <nav class="rail" id="rail" aria-label="Panels">
+    <button type="button" data-s="FLIGHT" data-d="dr-flight" style="--c:var(--pe)" aria-expanded="false"><b>01</b>FLIGHT</button>
+    <button type="button" data-s="INSTR" data-d="dr-inst" style="--c:var(--o)" aria-expanded="false"><b>02</b>INSTRUMENTS</button>
+    <button type="button" data-s="WEATHER" data-d="dr-wx" style="--c:var(--lav)" aria-expanded="false"><b>03</b>WEATHER</button>
+    <button type="button" data-s="PROFILE" data-d="dr-prof" style="--c:var(--red)" aria-expanded="false"><b>04</b>PROFILE</button>
+    <button type="button" data-s="DATA" data-d="dr-data" style="--c:var(--pink)" aria-expanded="false"><b>05</b>DATA</button>
+    <div class="rail-fill"></div>
+  </nav>
+
+  <!-- ===== stage: map + dock + flyout panels ===== -->
+  <main class="stage idle" id="stage">
+
+    <div class="map-wrap low-data" id="mapWrap">
+      <div id="map" role="application" aria-label="Interactive street map with the tracked aircraft and its route"></div>
+      <div id="liteMap" role="img" aria-label="Low-data world map with the tracked aircraft and its route">
+        <svg id="liteSvg" viewBox="0 0 1000 525" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <defs><linearGradient id="liteOcean" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d0a18"/><stop offset="1" stop-color="#000"/></linearGradient></defs>
+          <rect id="liteBg" width="1000" height="525" fill="url(#liteOcean)"/>
+          <path id="liteLand" fill="#1c1428" stroke="#cc99cc" stroke-width="1.5" stroke-linejoin="round"/>
+          <g id="liteGrid"></g>
+          <path id="liteRoute" fill="none" stroke="#ffcc99" stroke-width="3" stroke-dasharray="10 10" opacity=".75"/>
+          <polyline id="liteTrack" fill="none" stroke="#ff9900" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" points=""/>
+          <g id="liteTo" visibility="hidden"><circle r="7" fill="#ffcc66" stroke="#000" stroke-width="3"/><text x="12" y="-13" fill="#ffcc66" font-size="22" font-weight="800"></text></g>
+          <g id="liteFrom" visibility="hidden"><circle r="7" fill="#ffcc66" stroke="#000" stroke-width="3"/><text x="-12" y="-13" text-anchor="end" fill="#ffcc66" font-size="22" font-weight="800"></text></g>
+          <g id="litePlane" visibility="hidden"><circle r="23" fill="#2a1700" stroke="#ff9900" stroke-width="3"/><path fill="#ffcc66" d="M0 -19 L-6 -2 L-19 6 L-19 11 L-5 7 L-5 16 L-10 20 L10 20 L5 16 L5 7 L19 11 L19 6 L6 -2 Z"/></g>
+          <text id="liteCaption" x="24" y="500" fill="#cc99cc" font-size="17" letter-spacing="3">ROUTE OVERVIEW / NO TILES REQUIRED</text>
+        </svg>
+        <div class="lite-footer" id="liteFooter">Pick a flight to see it here. This map works without map tiles.</div>
+      </div>
+
+      <div class="map-tools">
+        <button class="ov-btn" id="toolsToggle" type="button" aria-expanded="true" aria-label="Hide map tools">Hide tools</button>
+        <div class="map-overlay" id="mapOverlay"><span class="pulse" id="mapPulse"></span><span id="mapOverlayText">No flight selected</span></div>
+        <div class="map-actions">
+          <div class="map-modes" role="group" aria-label="Map type"><button class="btn secondary btn-small" id="streetMode" type="button" aria-pressed="false">Street</button><button class="btn secondary btn-small" id="liteMode" type="button" aria-pressed="true">Low-data</button></div>
+          <label class="toggle"><input type="checkbox" id="follow" checked> Follow</label>
+          <button class="btn secondary btn-small" id="centerBtn" type="button">Find plane</button>
+          <button class="btn secondary btn-small" id="fitBtn" type="button">Fit route</button>
+          <button class="btn secondary btn-small" id="fullBtn" type="button" aria-pressed="false">Fullscreen</button>
+        </div>
+        <div class="map-caption"><span><i class="legend-dot live-dot"></i> Aircraft</span><span><i class="legend-line"></i> Direct route</span><span><i class="legend-line history-line"></i> Received track</span></div>
+      </div>
+      <div class="map-scale" id="mapScale" hidden><span id="scFrom">---</span><span class="line"></span><span id="scTo">---</span></div>
+      <div id="mapError" class="map-error" hidden>Map tiles unavailable. Live telemetry can still update.</div>
+
+      <!-- no-signal / problem card for the selected flight -->
+      <div class="map-msg" id="mapMsg" hidden role="status">
+        <b id="mapMsgTitle">No signal right now</b>
+        <p id="mapMsgText">This flight is not broadcasting a position the network can hear.</p>
+        <div class="map-msg-actions"><button class="btn primary btn-small" type="button" data-open-finder>Change flight</button><button class="btn secondary btn-small" type="button" data-open-finder="browse">Flights nearby</button></div>
+      </div>
+    </div>
+
+    <!-- ===== landing dock: always-visible widgets ===== -->
+    <section class="dock" id="dock" aria-label="Live flight summary">
+      <button class="ov-btn dock-toggle" id="dockToggle" type="button" aria-expanded="true" aria-label="Hide widgets">Hide widgets</button>
+      <article class="hud" style="--c:var(--gold)">
+        <div class="hud-l"><span id="dockSpdLbl">Speed</span><div class="seg spd-seg" role="group" aria-label="Speed type"><button type="button" data-m="gs" aria-pressed="true">GS</button><button type="button" data-m="tas" aria-pressed="false">TAS</button></div></div>
+        <div class="hud-v"><b id="dockSpeed">--</b><span>MPH</span></div>
+        <div class="hud-s" id="dockSpeedSub">&nbsp;</div>
+      </article>
+      <article class="hud" style="--c:var(--o)">
+        <div class="hud-l"><span>Altitude</span></div>
+        <div class="hud-v"><b id="dockAlt">--</b><span>FT</span></div>
+        <div class="hud-s" id="dockVs">&nbsp;</div>
+      </article>
+      <article class="hud" style="--c:var(--lav)">
+        <div class="hud-l"><span id="dockTmpLbl">Air temp</span><div class="seg" id="tmpSeg" role="group" aria-label="Temperature source"><button type="button" data-m="a" aria-pressed="true">AIR</button><button type="button" data-m="g" aria-pressed="false">GND</button></div></div>
+        <div class="hud-v"><b id="dockTemp">--</b><span>&deg;F</span></div>
+        <div class="hud-s" id="dockTempSub">&nbsp;</div>
+      </article>
+      <article class="hud hud-time" style="--c:var(--sky)">
+        <div class="hud-l"><span>Time remaining (est.)</span></div>
+        <div class="hud-v"><b id="dockTime">--</b></div>
+        <div class="dock-prog"><div id="dockProg"></div></div>
+        <div class="hud-s" id="dockEta">&nbsp;</div>
+      </article>
+    </section>
+
+    <!-- ===== flight finder: empty state + "change flight" ===== -->
+    <section class="finder" id="finder" hidden aria-label="Pick a flight to track">
+      <div class="finder-card" style="--c:var(--o)">
+        <div class="dr-h"><span class="dr-cap">GO</span><h2 id="finderTitle">Pick a flight to track</h2><i class="dr-fill"></i><button class="dr-x" type="button" id="finderX" aria-label="Close flight finder">&times;</button></div>
+        <div class="finder-b">
+          <form class="search" data-search autocomplete="off">
+            <label for="findQ">FLIGHT NUMBER, CALLSIGN, TAIL OR HEX</label>
+            <div class="search-row"><input id="findQ" name="q" maxlength="12" spellcheck="false" autocapitalize="characters" placeholder="UA123 / DAL100 / N12345" aria-label="Flight number, callsign, tail number or ICAO hex"><select name="mode" aria-label="Lookup type"><option value="auto">Auto</option><option value="callsign">Callsign</option><option value="reg">Tail</option><option value="hex">Hex</option></select><button class="btn primary" type="submit">Track</button></div>
+            <div class="search-hint" data-hint>Flight number (UA 123, BA 2490), ICAO callsign (UAL123), tail number (N12345, G-ABCD) or 6-character ICAO hex. Auto works it out.</div>
+          </form>
+          <div class="recent" data-recent hidden><span class="recent-l">RECENT</span><div class="chips" data-chips></div></div>
+
+          <div class="sub-h" id="browseHead"><i></i><span>In the air nearby <em>LIVE ADS-B</em></span><i></i></div>
+          <div class="browse-bar">
+            <button class="btn secondary btn-small" id="geoBtn" type="button">Use my location</button>
+            <form class="browse-ap" id="browseApForm" autocomplete="off"><input id="browseAp" maxlength="4" spellcheck="false" autocapitalize="characters" placeholder="Airport" aria-label="Airport code (IATA or ICAO) to list flights around"><button class="btn secondary btn-small" type="submit">Go</button></form>
+            <div class="seg" id="radSeg" role="group" aria-label="Search radius" style="--c:var(--sky)"><button type="button" data-r="50" aria-pressed="false">50</button><button type="button" data-r="100" aria-pressed="true">100</button><button type="button" data-r="200" aria-pressed="false">200 NM</button></div>
+            <label class="toggle"><input type="checkbox" id="airOnly" checked> Airlines only</label>
+          </div>
+          <div class="browse-status" id="browseStatus">Choose an airport or share your location to list flights in the air.</div>
+          <ol class="browse-list" id="browseList"></ol>
+          <p class="fine">Your location is optional. If you allow it, it is rounded to about 6 km, used only to list nearby flights and never stored.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== flyout: FLIGHT ===== -->
+    <aside class="drawer" id="dr-flight" style="--c:var(--pe);--dw:680px" aria-hidden="true" aria-label="Flight">
+      <div class="dr-h"><span class="dr-cap">01</span><h2>Flight</h2><i class="dr-fill"></i><button class="dr-x" type="button" data-close aria-label="Close panel">&times;</button></div>
+      <div class="dr-b">
+        <section class="intro" aria-label="Flight">
+          <div class="eyebrow" id="fEyebrow">NO FLIGHT SELECTED</div>
+          <h1 id="fTitle">Pick a flight</h1>
+          <div class="flight-context" id="fContext">Search below or browse flights in the air.</div>
+          <div class="route-head" id="routeHead"><div class="airport"><b id="rhFrom">---</b><span id="rhFromN">Origin unknown</span></div><div class="route-connector"><span></span><svg viewBox="0 0 24 24" width="21" height="21" fill="currentColor" aria-hidden="true"><path d="M21 3c-.5-.5-1.5-.4-2.1-.1L13 6.5 7.1 3.6 5.3 4.7l4.9 4.5-5.9 3.5-2.5-1.2-1.8 1.1 3.4 3.1 1 4.5 2-1.2-.2-3.7L22 6.3c.8-.5.9-2.3-1-3.3Z"/></svg><span></span></div><div class="airport"><b id="rhTo">---</b><span id="rhToN">Destination unknown</span></div></div>
+          <div class="route-src" id="routeSrc">Route unknown</div>
+          <div class="schedule">
+            <div style="--c:var(--lav)"><span>Aircraft</span><strong id="fType">--</strong></div>
+            <div style="--c:var(--blu)"><span>Tail / ICAO hex</span><strong id="fTail">--</strong></div>
+            <div style="--c:var(--gold)" class="phase-cell"><span>Flight phase</span><strong class="panel-chip" id="flightPhase">NO FLIGHT</strong></div>
+          </div>
+        </section>
+
+        <div class="controlbar">
+          <form class="search" data-search autocomplete="off">
+            <label for="flightId">TRACK A FLIGHT</label>
+            <div class="search-row"><input id="flightId" name="q" maxlength="12" spellcheck="false" autocapitalize="characters" placeholder="UA123 / N12345" aria-label="Flight number, callsign, tail number or ICAO hex"><select id="lookupMode" name="mode" aria-label="Lookup type"><option value="auto">Auto</option><option value="callsign">Callsign</option><option value="reg">Tail</option><option value="hex">Hex</option></select><button class="btn primary" id="trackBtn" type="submit">Track</button></div>
+            <div class="search-hint" data-hint>Flight number, callsign, tail number or hex.</div>
+          </form>
+          <div class="refresh-controls"><button class="btn secondary" type="button" data-open-finder="browse">Browse nearby</button><span class="muted">Auto-refresh <strong>30s</strong></span><button class="btn secondary" id="refreshBtn" type="button">Refresh now</button></div>
+          <div class="recent" data-recent hidden><span class="recent-l">RECENT</span><div class="chips" data-chips></div></div>
+        </div>
+
+        <form class="routebar" id="routeForm" autocomplete="off">
+          <div class="routebar-l">ROUTE WRONG OR MISSING? SET IT</div>
+          <div class="routebar-row">
+            <label>From <input id="rFrom" maxlength="4" spellcheck="false" autocapitalize="characters" placeholder="KSLC"></label>
+            <label>To <input id="rTo" maxlength="4" spellcheck="false" autocapitalize="characters" placeholder="EGLL"></label>
+            <button class="btn primary btn-small" type="submit">Set route</button>
+            <button class="btn secondary btn-small" type="button" id="rClear" hidden>Use automatic route</button>
+          </div>
+          <div class="routebar-hint" id="routeHint">ICAO (KSLC) or IATA (SLC) codes. Saved for this flight on this device and added to the link.</div>
+        </form>
+
+        <article class="cell progress-panel" style="--c:var(--gold)" id="progressPanel">
+          <div class="cell-l"><span>Route progress</span><em>JOURNEY</em></div>
+          <div class="progress-head"><strong id="progressPct">--%</strong><span id="remaining">-- mi remaining (direct)</span></div>
+          <div class="progress-bar"><div id="progressFill"></div></div>
+          <div class="progress-cities"><span id="pcFrom">Origin</span><span id="pcTo">Destination</span></div>
+          <div class="route-unknown" id="routeUnknown" hidden>Route unknown - add destination above to see progress, time remaining and ETA.</div>
+          <div class="trip-details">
+            <div><span>Time remaining (est.)*</span><b id="timeLeft">--</b></div>
+            <div><span>Current-speed ETA*</span><b id="estimatedArrival">--</b></div>
+            <div><span>Top of descent (est.)*</span><b id="todInfo">--</b></div>
+            <div><span>Approx. direct distance</span><b id="directDistance">--</b></div>
+            <div><span>Last position received</span><b id="lastPosition">--</b></div>
+          </div>
+          <p class="disclaimer">*Estimates from current speed and the direct route, not airline predictions. Time remaining assumes the plane reaches typical cruise speed; top of descent uses the 3 nautical miles per 1,000 ft rule of thumb. Winds, routing and air traffic control change the real numbers. Times are shown in your time zone.</p>
+        </article>
+
+        <section class="notice" aria-live="polite" id="notice"><span class="notice-icon">i</span><p id="noticeText">Pick a flight to start tracking. Aircraft sometimes do not broadcast a usable position until they are taxiing or airborne.</p></section>
+      </div>
+    </aside>
+
+    <!-- ===== flyout: INSTRUMENTS ===== -->
+    <aside class="drawer" id="dr-inst" style="--c:var(--o);--dw:900px" aria-hidden="true" aria-label="Instruments">
+      <div class="dr-h"><span class="dr-cap">02</span><h2>Instruments</h2><i class="dr-fill"></i><button class="dr-x" type="button" data-close aria-label="Close panel">&times;</button></div>
+      <div class="dr-b">
+        <div class="tele">
+          <article class="cell c-alt" style="--c:var(--o)">
+            <div class="cell-l"><span>Altitude</span><em>ALT</em></div>
+            <div class="alt-wrap">
+              <div class="alt-readout">
+                <div class="stat-value"><b id="altitude">--</b><span>FT</span></div>
+                <div class="stat-foot" id="altitudeHint">Barometric altitude</div>
+                <div class="alt-note">Scale 0 &ndash; <span id="altMaxLbl">45,000</span> ft. Typical airliner ceiling is about 41,000 ft; the headroom is display margin only. Dashed blue line = autopilot selected altitude, when transmitted.</div>
+              </div>
+              <div class="alt-bar" id="altBar" aria-hidden="true">
+                <div class="alt-track"><div class="alt-fill" id="altFill"></div></div>
+                <div class="alt-scale" id="altScale"></div>
+                <div class="alt-cruise" id="altCruise"><span>CRUISE</span></div>
+                <div class="alt-ceiling" id="altCeil"><span>CEILING ~41K</span></div>
+                <div class="alt-tgt" id="altTgt"></div><div class="alt-mark" id="altMark"></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="cell c-spd main-stat" style="--c:var(--gold)">
+            <div class="cell-l"><span id="spdTitle">Ground speed</span><em id="spdTag">GS</em></div>
+            <div class="seg spd-seg" role="group" aria-label="Speed type"><button type="button" data-m="gs" aria-pressed="true">Ground</button><button type="button" data-m="tas" aria-pressed="false">Air</button></div>
+            <div class="gauge">
+              <svg viewBox="-16 -8 232 134" aria-hidden="true">
+                <path class="g-track" d="M20 104 A80 80 0 0 1 180 104" pathLength="100"/>
+                <path class="g-fill" id="gaugeFill" d="M20 104 A80 80 0 0 1 180 104" pathLength="100"/>
+                <g class="g-ticks" id="gaugeTicks"></g>
+              </svg>
+              <div class="gauge-num"><div class="stat-value"><b id="speed">--</b><span>MPH</span></div></div>
+            </div>
+            <div class="stat-foot" id="speedKnots">-- knots</div><div class="stat-foot sub" id="speedExtra"></div>
+          </article>
+
+          <article class="cell c-hdg heading-stat" style="--c:var(--lav)">
+            <div class="cell-l"><span>Heading / Bearing</span><em>HDG</em></div>
+            <div class="heading-row">
+              <div class="compass" aria-label="Compass showing north east south west"><span class="north">N</span><span class="east">E</span><span class="south">S</span><span class="west">W</span><span class="hdg-bug" id="hdgBug"></span><span class="needle" id="needle"></span></div>
+              <div><div class="stat-value heading-value"><b id="heading">--</b><span>DEG</span></div><div class="stat-foot" id="direction">--</div></div>
+            </div>
+          </article>
+
+          <article class="cell c-vs" style="--c:var(--blu)">
+            <div class="cell-l"><span>Vertical speed</span><em>VS</em></div>
+            <div class="stat-value"><b id="vertical">--</b><span>FT/MIN</span></div>
+            <div class="vs-bar" aria-hidden="true"><div class="vs-track"><div class="vs-fill" id="vsFill"></div><i class="vs-zero"></i></div><div class="vs-lbl"><span>DESCENT</span><span>LEVEL</span><span>CLIMB</span></div></div>
+            <div class="stat-foot" id="verticalHint">Climb / descent</div>
+          </article>
+
+          <article class="cell c-sig" style="--c:var(--pink)">
+            <div class="cell-l"><span>Signal strength</span><em>LINK</em></div>
+            <div class="stat-value"><b id="sigAge">--</b><span>AGE</span></div>
+            <div class="sig-meter" id="sigMeter" aria-hidden="true"></div>
+            <div class="stat-foot" id="sigHint">Waiting for a position report</div>
+          </article>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== flyout: WEATHER ===== -->
+    <aside class="drawer" id="dr-wx" style="--c:var(--lav);--dw:700px" aria-hidden="true" aria-label="Weather">
+      <div class="dr-h"><span class="dr-cap">03</span><h2>Weather</h2><i class="dr-fill"></i><button class="dr-x" type="button" data-close aria-label="Close panel">&times;</button></div>
+      <div class="dr-b">
+        <div class="weather-where" id="weatherWhere">Waiting for an aircraft position</div>
+        <div class="seg tabs" data-group="wx" role="group" aria-label="Weather level"><button type="button" data-t="wx-g" aria-pressed="true">Below the plane</button><button type="button" data-t="wx-a" aria-pressed="false">At altitude</button></div>
+        <article class="cell weather-card tabpane" data-group="wx" id="wx-g" style="--c:var(--lav)">
+          <div class="cell-l"><span>Surface weather below</span><em>2M / 10M</em></div>
+          <div class="weather-columns"><div><span class="weather-k">Temperature</span><strong id="weatherGroundTemp">--</strong>
+            <div class="therm" aria-hidden="true"><i id="wxGTherm"></i><b id="wxGThermMk"></b></div></div>
+            <div><span class="weather-k">Wind</span><strong id="weatherGroundWind">--</strong><span class="weather-dir" id="weatherGroundDir">--</span>
+            <div class="windviz" aria-hidden="true"><svg viewBox="0 0 40 40" class="warrow" id="wxGArrow"><path d="M20 3 29 31 20 25 11 31Z"/></svg><div class="wbar" id="wxGWindBar"></div></div></div></div>
+        </article>
+        <article class="cell weather-card tabpane" data-group="wx" id="wx-a" style="--c:var(--blu)" hidden>
+          <div class="cell-l"><span>Weather near aircraft altitude</span><em>MODEL</em></div>
+          <div class="weather-columns"><div><span class="weather-k">Temperature</span><strong id="weatherAirTemp">--</strong>
+            <div class="therm" aria-hidden="true"><i id="wxATherm"></i><b id="wxAThermMk"></b></div></div>
+            <div><span class="weather-k">Wind</span><strong id="weatherAirWind">--</strong><span class="weather-dir" id="weatherAirDir">--</span>
+            <div class="windviz" aria-hidden="true"><svg viewBox="0 0 40 40" class="warrow" id="wxAArrow"><path d="M20 3 29 31 20 25 11 31Z"/></svg><div class="wbar" id="wxAWindBar"></div></div></div></div>
+          <p class="weather-level" id="weatherAirLevel">Requires a live aircraft position and altitude</p>
+        </article>
+        <div class="weather-status"><span id="weatherStatus">Weather loads once an aircraft position or route is known.</span> <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> weather model. Wind direction means FROM, not TO (arrows point where the wind is blowing). Estimated conditions, not cockpit measurements. Radar and storm warnings (US only) are on the Street map.</div>
+
+        <div class="sub-h"><i></i><span>Airport reports <em>METAR</em></span><i></i></div>
+        <div class="seg tabs" id="metarSeg" role="group" aria-label="Airport"></div>
+        <div class="metar-grid" id="metarGrid" data-show="0"><article class="cell metar" style="--c:var(--pe)"><div class="cell-l"><span>Airport reports appear once the route is known</span></div></article></div>
+        <div class="weather-status" id="metarStatus">&nbsp;</div>
+      </div>
+    </aside>
+
+    <!-- ===== flyout: PROFILE ===== -->
+    <aside class="drawer" id="dr-prof" style="--c:var(--red);--dw:900px" aria-hidden="true" aria-label="Flight profile">
+      <div class="dr-h"><span class="dr-cap">04</span><h2>Flight profile</h2><i class="dr-fill"></i><button class="dr-x" type="button" data-close aria-label="Close panel">&times;</button></div>
+      <div class="dr-b">
+        <article class="cell profile-cell" style="--c:var(--red)">
+          <div class="cell-l"><span>Altitude and speed over time</span><em>RECORDED</em></div>
+          <div class="profile-legend"><span><i style="background:var(--o)"></i> Altitude (ft)</span><span><i style="background:var(--sky)"></i> Ground speed (mph)</span></div>
+          <svg id="profileSvg" viewBox="0 0 800 230" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Altitude and ground speed over the tracked flight"></svg>
+          <div class="flog-wrap"><div class="flog-h">FLIGHT LOG <em>DERIVED FROM RECORDED TRACK</em></div><ol class="flog" id="flightLog"><li class="flog-empty">Events appear here as the flight is recorded.</li></ol></div>
+          <p class="profile-note" id="profileNote">The profile builds from points recorded while anyone tracks this flight here. It fills in as the flight goes on.</p>
+        </article>
+      </div>
+    </aside>
+
+    <!-- ===== flyout: DATA ===== -->
+    <aside class="drawer" id="dr-data" style="--c:var(--pink);--dw:640px" aria-hidden="true" aria-label="Aircraft data">
+      <div class="dr-h"><span class="dr-cap">05</span><h2>Aircraft data</h2><i class="dr-fill"></i><button class="dr-x" type="button" data-close aria-label="Close panel">&times;</button></div>
+      <div class="dr-b">
+        <div class="seg tabs" data-group="dt" role="group" aria-label="Data view"><button type="button" data-t="dt-tx" aria-pressed="true">Transponder</button><button type="button" data-t="dt-ap" aria-pressed="false">Autopilot &amp; link</button></div>
+        <div class="tabpane" data-group="dt" id="dt-tx">
+          <div class="panel-top"><span class="eyebrow">AIRCRAFT INFORMATION</span><span class="panel-chip">ADS-B</span></div>
+          <dl class="data-list">
+            <div><dt>Callsign</dt><dd id="callsign">--</dd></div>
+            <div><dt>Aircraft model</dt><dd id="aircraftType">Awaiting ADS-B identification</dd></div>
+            <div><dt>Registration / Tail</dt><dd id="registration">--</dd></div>
+            <div><dt>ICAO hex</dt><dd id="icao">--</dd></div>
+            <div><dt>Position</dt><dd id="coordinates">--</dd></div>
+            <div><dt>Squawk</dt><dd id="squawk">--</dd></div>
+            <div><dt>Telemetry timestamp</dt><dd id="observation">--</dd></div>
+          </dl>
+        </div>
+        <article class="cell c-tgt tabpane" data-group="dt" id="dt-ap" style="--c:var(--sky)" hidden>
+          <div class="cell-l"><span>Autopilot selections &amp; link quality</span><em>AP / RX</em></div>
+          <div class="tgt-grid">
+            <div><span>Selected altitude</span><b id="tgtAlt">--</b><small id="tgtAltHint">Not transmitted</small></div>
+            <div><span>Selected heading</span><b id="tgtHdg">--</b><small id="tgtHdgHint">Not transmitted</small></div>
+            <div><span>Altimeter setting</span><b id="tgtQnh">--</b><small id="tgtQnhIn">Not transmitted</small></div>
+            <div><span>Position accuracy</span><b id="tgtAcc">--</b><small id="tgtAccHint">Not transmitted</small></div>
+            <div><span>Receiver signal</span><b id="tgtRssi">--</b><small>dBFS at the ground receiver</small></div>
+            <div><span>Messages received</span><b id="tgtMsgs">--</b><small>Total from this aircraft</small></div>
+          </div>
+        </article>
+        <footer><div><strong>CLIMBOUT</strong><span>LIVE FLIGHT TRACKER / <a href="https://github.com/wsimon98/Climbout" target="_blank" rel="noopener noreferrer">SOURCE ON GITHUB</a></span></div><div>Flight positions and routes by <a href="https://www.adsb.lol/docs/open-data/api" target="_blank" rel="noopener noreferrer">adsb.lol</a> under <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">ODbL 1.0</a>. Airport data and reports (METAR): NWS Aviation Weather Center. Weather model: <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>. Radar and warnings: NWS/NEXRAD via <a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener noreferrer">Iowa Environmental Mesonet</a>. Map data by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors. Low-data map outlines: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener noreferrer">Natural Earth</a>. Live positions depend on volunteer receiver coverage; estimates are not airline predictions and this is not an airline-operated service.</div></footer>
+      </div>
+    </aside>
+  </main>
+
+  <div class="bottom-frame"><i style="--c:var(--pink)"></i><i style="--c:var(--red)" class="w2"></i><i style="--c:var(--gold)" class="w3"></i><i style="--c:var(--o)" class="w4"></i></div>
+</div>
+<script src="./vendor/leaflet.js?v=1.9.4" defer></script>
+<script src="./land.js?v=20261114-co2" defer></script>
+<script src="./app.js?v=20261114-co2" defer></script>
+</body>
+</html>
