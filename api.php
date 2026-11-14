@@ -73,6 +73,8 @@ if (!@is_dir($folder) && !@mkdir($folder, 0700, true) && !@is_dir($folder)) {
     fail('Private cache storage unavailable', 503);
 }
 define('CACHE', $folder);
+// Now and then, delete cache files nobody has refreshed for 8 days (the longest cache lifetime is 7 days).
+if (random_int(1, 500) === 1) pruneCache(8 * 86400);
 
 // ---------------------------------------------------------------- dispatch
 if (isset($_GET['health'])) health();
@@ -499,6 +501,14 @@ function writeJson(string $path, array $value): void {
     $tmp = $path . '.' . getmypid() . '.tmp';
     if (@file_put_contents($tmp, json_encode($value, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)) !== false) {
         @rename($tmp, $path);
+    }
+}
+function pruneCache(int $maxAge): void {
+    $limit = time() - $maxAge;
+    foreach (@scandir(CACHE) ?: [] as $name) {
+        if (!preg_match('/^[0-9a-f]{64}(-history)?\.(json|lock)$|\.tmp$/D', $name)) continue;
+        $mtime = @filemtime(CACHE . '/' . $name);
+        if ($mtime !== false && $mtime < $limit) @unlink(CACHE . '/' . $name);
     }
 }
 /** Site-wide per-minute budget for upstream calls. */

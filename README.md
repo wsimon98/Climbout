@@ -135,6 +135,9 @@ Cache lifetimes: aircraft 25 s, nearby flights 15 s, routes 1 h (5 min when not 
   page warns when the database route doesn't match the aircraft's position. You can always set the route by hand.
 - Flight-number conversion covers about 150 common airlines. For others, type the ICAO callsign (3 letters + number) shown
   on the browse list.
+- Many airlines, especially in Europe and the Middle East (Ryanair, easyJet, Lufthansa, Swiss, Qatar Airways...), fly many
+  flights under an alphanumeric radio callsign that differs from the flight number (for example `RYR4KM`, `SWR18P`). A
+  flight-number search cannot find those: search the tail number or the callsign shown on the browse list instead.
 - Radar and warning overlays cover the United States only.
 - Climbout is not an airline-operated service and is not for navigation or operational use.
 

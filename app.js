@@ -638,7 +638,7 @@ function renderEmpty(msg,status){
  setNotice(status==='error'?'The free tracking feed is temporarily unavailable. Climbout will retry automatically.':'No position for '+id+' right now. This is normal before pushback, after landing, on some taxiways and where no volunteer receiver is in range.',status);
  text('flightPhase',status==='error'?'SOURCE UNAVAILABLE':'NO SIGNAL');
  showMapMsg(status==='error'?'Flight feed unavailable':'No signal from '+id+' right now',
-   status==='error'?'The free ADS-B feed did not answer. Climbout keeps retrying every 30 seconds.':'The flight may not have departed yet, may have landed, or may be out of receiver range. Check the flight number, or pick another flight.');
+   status==='error'?'The free ADS-B feed did not answer. Climbout keeps retrying every 30 seconds.':'The flight may not have departed yet, may have landed, or may be out of receiver range. Check the flight number, or pick another flight.'+(cfg&&cfg.from&&cfg.from!==cfg.id?' Some airlines fly under a radio callsign that differs from the flight number (like RYR4KM): then search the tail number or pick it from Flights nearby.':''));
  if(!state.route)showTripUnknown(true);
 }
 function showTripUnknown(on){byId('routeUnknown').hidden=!on;byId('progressPanel').classList.toggle('no-route',on);}
